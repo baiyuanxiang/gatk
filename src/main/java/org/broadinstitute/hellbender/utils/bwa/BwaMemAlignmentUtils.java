@@ -6,6 +6,7 @@ import org.broadinstitute.hellbender.tools.spark.sv.utils.SVUtils;
 import org.broadinstitute.hellbender.utils.BaseUtils;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Utils to move data from a BwaMemAlignment into a GATKRead, or into a SAM tag.
@@ -87,6 +88,9 @@ public class BwaMemAlignmentUtils {
             samRecord.setBaseQualities(SAMRecord.NULL_QUALS);
         }
         if ( readGroup != null ) samRecord.setAttribute(SAMTag.RG.name(), readGroup);
+        if (samRecord.isValid() != null) {
+            throw new IllegalStateException(samRecord.isValid().stream().map(s -> s.getMessage()).collect(Collectors.joining(", ")));
+        }
         return samRecord;
     }
 
