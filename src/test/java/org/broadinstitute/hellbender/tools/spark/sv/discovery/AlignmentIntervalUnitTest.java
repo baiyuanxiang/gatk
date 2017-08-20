@@ -76,9 +76,13 @@ public class AlignmentIntervalUnitTest extends BaseTest {
         final Cigar[] cigars = Arrays.stream(cigarStrings).map(TextCigarCodec::decode).toArray(Cigar[]::new);
 
 
+
         final Object[][] data = new Object[cigars.length][];
         for(int i=0; i<cigars.length; ++i) {
-            final BwaMemAlignment bwaMemAlignment = new BwaMemAlignment(strandedness[i] ? 0 : SAMFlag.READ_REVERSE_STRAND.intValue(),
+            int samFlag = 0;
+            if ( !strandedness[i] ) samFlag = SAMFlag.READ_REVERSE_STRAND.intValue();
+            if ( cigarStrings[i].indexOf('H') != -1 ) samFlag |= SAMFlag.SUPPLEMENTARY_ALIGNMENT.intValue();
+            final BwaMemAlignment bwaMemAlignment = new BwaMemAlignment(samFlag,
                     0, alignmentStartsOnRef_0Based[i], alignmentStartsOnRef_0Based[i]+cigars[i].getReferenceLength(),
                     strandedness[i] ? alignmentStartsOnTig_0BasedInclusive[i] : seqLen[i]-alignmentEndsOnTig_0BasedExclusive[i],
                     strandedness[i] ? alignmentEndsOnTig_0BasedExclusive[i] : seqLen[i]-alignmentStartsOnTig_0BasedInclusive[i],
