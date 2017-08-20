@@ -302,7 +302,7 @@ public final class AlignmentInterval {
      * @param hardClip whether clippings must be hard ones.
      * @return never {@code null}.
      */
-    public SAMRecord convertToSAMRecord(final SAMFileHeader header, final AlignedContig contig, final boolean hardClip) {
+    public SAMRecord toSAMRecord(final SAMFileHeader header, final AlignedContig contig, final boolean hardClip) {
         Utils.nonNull(header, "the input header cannot be null");
         Utils.nonNull(contig, "the input contig cannot be null");
         final SAMRecord result = new SAMRecord(header);
@@ -329,10 +329,10 @@ public final class AlignmentInterval {
         if (mapQual >= 0) {
             result.setMappingQuality(this.mapQual);
         }
-        if (mismatches != -1) {
+        if (mismatches != MISSING_NM) {
             result.setAttribute(SAMTag.NM.name(), mismatches);
         }
-        if (alnScore != -1) {
+        if (alnScore != MISSING_AS) {
             result.setAttribute(SAMTag.AS.name(), alnScore);
         }
         return result;

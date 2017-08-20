@@ -337,9 +337,9 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
 
     private static List<SAMRecord> convertToSAMRecords(final AlignedContig alignment, final SAMFileHeader header, final String referenceContig, final int contigStart, final String idPrefix, final String hpTagValue, final double hpQualTagValue, final AlignedContigScore referenceScore, final AlignedContigScore alternativeScore, final int variantStart) {
         final List<SAMRecord> result = new ArrayList<>(alignment.alignmentIntervals.size());
-        result.add(alignment.alignmentIntervals.get(0).convertToSAMRecord(header, alignment, false));
+        result.add(alignment.alignmentIntervals.get(0).toSAMRecord(header, alignment, false));
         for (int i = 1; i < alignment.alignmentIntervals.size(); i++) {
-            result.add(alignment.alignmentIntervals.get(i).convertToSAMRecord(header, alignment, true));
+            result.add(alignment.alignmentIntervals.get(i).toSAMRecord(header, alignment, true));
         }
         for (final SAMRecord record : result) {
             record.setReadName(idPrefix + ":" + alignment.contigName);

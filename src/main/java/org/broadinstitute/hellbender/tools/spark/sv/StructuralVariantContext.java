@@ -31,8 +31,8 @@ public class StructuralVariantContext extends VariantContext {
 
     private static final long serialVersionUID = 1L;
 
-    private int end = -1;
-    private int length = -1;
+    private transient int end = -1;
+    private transient int length = -1;
 
     /**
      * Returns a instance given a plain {@link VariantContext} instance.

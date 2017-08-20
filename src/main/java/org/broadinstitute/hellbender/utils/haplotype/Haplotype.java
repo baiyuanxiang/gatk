@@ -277,7 +277,7 @@ public final class Haplotype extends Allele {
     /**
      * Converts the haplotype into a {@link SAMRecord} without extra conversion code.
      * <p>
-     * This call is equivalent to {@code {@link #convertToSAMRecord(SAMFileHeader, String, Consumer) convertToSAMRecord(header, name, null)}}.
+     * This call is equivalent to {@code {@link #convertToSAMRecord(SAMFileHeader, String, Consumer) toSAMRecord(header, name, null)}}.
      * </p>
      * @see #convertToSAMRecord(SAMFileHeader, String, Consumer)
      *
