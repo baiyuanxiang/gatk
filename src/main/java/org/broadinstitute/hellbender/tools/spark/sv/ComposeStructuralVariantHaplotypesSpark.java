@@ -587,9 +587,9 @@ public class ComposeStructuralVariantHaplotypesSpark extends GATKSparkTool {
             r.setAttribute(SAMTag.RG.name(), HAPLOTYPE_READ_GROUP);
             r.setMappingQuality(60);
         };
-        outputWriter.addAlignment(referenceHaplotype.convertToSAMRecord(outputHeader, idPrefix + ":ref",
+        outputWriter.addAlignment(referenceHaplotype.toSAMRecord(outputHeader, idPrefix + ":ref",
                 haplotypeExtraSetup));
-        outputWriter.addAlignment(alternativeHaplotype.convertToSAMRecord(outputHeader, idPrefix + ":alt",
+        outputWriter.addAlignment(alternativeHaplotype.toSAMRecord(outputHeader, idPrefix + ":alt",
                 haplotypeExtraSetup));
     }
 

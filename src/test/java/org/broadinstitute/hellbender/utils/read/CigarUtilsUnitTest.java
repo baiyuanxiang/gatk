@@ -410,7 +410,7 @@ public final class CigarUtilsUnitTest {
 
     @Test(dataProvider = "randomValidCigars")
     public void testSoftClip(final Cigar cigar) {
-        final Cigar actual = CigarUtils.softClip(cigar);
+        final Cigar actual = CigarUtils.softReclip(cigar);
         final Cigar expected = CigarUtils.combineAdjacentCigarElements(new Cigar(
                 cigar.getCigarElements().stream()
                         .map(ce -> ce.getOperator().isClipping() ? new CigarElement(ce.getLength(), CigarOperator.SOFT_CLIP) : ce)
@@ -431,7 +431,7 @@ public final class CigarUtilsUnitTest {
 
     @Test(dataProvider = "randomValidCigars")
     public void testHardClip(final Cigar cigar) {
-        final Cigar actual = CigarUtils.hardClip(cigar);
+        final Cigar actual = CigarUtils.hardReclip(cigar);
         final Cigar expected = CigarUtils.combineAdjacentCigarElements(new Cigar(
                 cigar.getCigarElements().stream()
                         .map(ce -> ce.getOperator().isClipping() ? new CigarElement(ce.getLength(), CigarOperator.HARD_CLIP) : ce)

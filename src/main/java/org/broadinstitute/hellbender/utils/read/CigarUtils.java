@@ -364,7 +364,8 @@ public final class CigarUtils {
         }
 
         final Cigar result = AlignmentUtils.consolidateCigar(cigarToReturn);
-        Utils.validate(result.getReferenceLength() == cigar.getReferenceLength(), () -> "leftAlignCigarSequentially failed to produce a valid CIGAR.  Reference lengths differ.  Initial cigar " + cigar + " left aligned into " + result);
+        Utils.validate(result.getReferenceLength() == cigar.getReferenceLength(),
+                () -> "leftAlignCigarSequentially failed to produce a valid CIGAR.  Reference lengths differ.  Initial cigar " + cigar + " left aligned into " + result);
         return result;
     }
 
@@ -381,10 +382,10 @@ public final class CigarUtils {
      *
      * @param cigar the input cigar.
      * @throws IllegalArgumentException if the input {@code cigar} is {@code null} or non-valid.
-     * @return never {@code null}. It might be the same cigar instance if there is not changes to be made.
+     * @return never {@code null}.
      */
-    public static Cigar hardClip(final Cigar cigar) {
-        return softOfHardClip(cigar, true);
+    public static Cigar hardReclip(final Cigar cigar) {
+        return softOrHardReclip(cigar, true);
     }
 
     /**
@@ -400,10 +401,10 @@ public final class CigarUtils {
      *
      * @param cigar the input cigar.
      * @throws IllegalArgumentException if the input {@code cigar} is {@code null} or non-valid.
-     * @return never {@code null}. It might be the same cigar instance if there is not changes to be made.
+     * @return never {@code null}.
      */
-    public static Cigar softClip(final Cigar cigar) {
-        return softOfHardClip(cigar, false);
+    public static Cigar softReclip(final Cigar cigar) {
+        return softOrHardReclip(cigar, false);
     }
 
     /**
@@ -416,69 +417,33 @@ public final class CigarUtils {
      * @param hard whether the output cigar should contain only hard ({@code true}) or soft ({@code true}) clips.
      *
      * @throws IllegalArgumentException if the input cigar cannot be {@code null}, or if it is invalid.
-     * @return the output cigar after the transformation. If no transformation was needed
-     *         it might return the input cigar itself.
+     * @return the output cigar after the transformation.
      */
-    private static Cigar softOfHardClip(final Cigar cigar, final boolean hard) {
+    private static Cigar softOrHardReclip(final Cigar cigar, final boolean hard) {
         Utils.nonNull(cigar, "the input cigar cannot be null");
         final CigarOperator clipOperator = hard ? CigarOperator.H : CigarOperator.S;
         final List<CigarElement> elements = cigar.getCigarElements();
         if (elements.isEmpty()) {
-            return cigar;
-        }
-        int leftClippingLength = 0;
-        int leftClippingElementCount = 0;
-        int nextIndex;
-        for (nextIndex = 0; nextIndex < elements.size(); nextIndex++) {
-            final CigarElement element = elements.get(nextIndex);
-            final CigarOperator operator = element.getOperator();
-            if (!operator.isClipping()) {
-                break;
-            } else {
-                leftClippingElementCount++;
-                leftClippingLength += element.getLength();
-            }
-        }
-        if (nextIndex == elements.size()) {
-            throw new IllegalArgumentException("the input cigar is not valid as it contains only clippings");
-        }
-        final int firstNonClippingIndex = nextIndex;
-        for (; nextIndex < elements.size(); nextIndex++) {
-            if (elements.get(nextIndex).getOperator().isClipping()) {
-                break;
-            }
-        }
-        final int lastNonClippingIndex = nextIndex - 1;
-        int rightClippingLength = 0;
-        int rightClippingElementCount = 0;
-        for (; nextIndex < elements.size(); nextIndex++) {
-            final CigarElement element = elements.get(nextIndex);
-            final CigarOperator operator = element.getOperator();
-            if (!operator.isClipping()) {
-                throw new IllegalArgumentException("the input cigar has clipping elements mixed with non-clipping ones");
-            } else {
-                rightClippingElementCount++;
-                rightClippingLength += element.getLength();
-            }
-        }
-        final boolean needsLeftReclipping = leftClippingElementCount > 1
-                || (leftClippingElementCount == 1 && elements.get(0).getOperator() != clipOperator);
-        final boolean needsRightReclipping = rightClippingElementCount > 1
-                || (rightClippingElementCount == 1 && elements.get(elements.size() - 1).getOperator() != clipOperator);
-        if (!needsLeftReclipping && !needsRightReclipping) {
-            return cigar;
+            return new Cigar(Collections.emptyList());
         } else {
-            final List<CigarElement> newElements = new ArrayList<>(lastNonClippingIndex - firstNonClippingIndex + 3);
-            if (leftClippingLength > 0) {
-                newElements.add(needsLeftReclipping ? new CigarElement(leftClippingLength, clipOperator) : elements.get(0));
+            final List<CigarElement> resultElements = new ArrayList<>(elements.size());
+            CigarElement lastElement = null; // caches the last cigar element added to resultElements.
+            for (final CigarElement element : elements) {
+                final CigarOperator operator = element.getOperator();
+                if (operator.isClipping()) {
+                    if (lastElement != null && lastElement.getOperator().isClipping()) {
+                        final int newLength = element.getLength() + lastElement.getLength();
+                        resultElements.set(resultElements.size() - 1, lastElement = new CigarElement(newLength, clipOperator));
+                    } else if (operator != clipOperator) {
+                        resultElements.add(lastElement = new CigarElement(element.getLength(), clipOperator));
+                    } else {
+                        resultElements.add(lastElement = element);
+                    }
+                } else {
+                    resultElements.add(lastElement = element);
+                }
             }
-            for (int i = firstNonClippingIndex; i <= lastNonClippingIndex; i++) {
-                newElements.add(elements.get(i));
-            }
-            if (rightClippingLength > 0) {
-                newElements.add(needsRightReclipping ? new CigarElement(rightClippingLength, clipOperator) : elements.get(elements.size() - 1));
-            }
-            return new Cigar(newElements);
+            return new Cigar(resultElements);
         }
     }
 

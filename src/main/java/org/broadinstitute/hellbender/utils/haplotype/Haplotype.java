@@ -8,8 +8,6 @@ import org.broadinstitute.hellbender.utils.SimpleInterval;
 import org.broadinstitute.hellbender.utils.Utils;
 import org.broadinstitute.hellbender.utils.read.AlignmentUtils;
 import org.broadinstitute.hellbender.utils.read.ReadUtils;
-import org.broadinstitute.hellbender.utils.read.SAMRecordToGATKReadAdapter;
-import org.seqdoop.hadoop_bam.SAMFormat;
 
 import java.util.Arrays;
 import java.util.Comparator;
@@ -248,7 +246,7 @@ public final class Haplotype extends Allele {
      * @throws IllegalArgumentException if {@code header} or {@code name} are {@code null}.
      * @return never {@code null}.
      */
-    public SAMRecord convertToSAMRecord(final SAMFileHeader header, final String name, final Consumer<SAMRecord> extra) {
+    public SAMRecord toSAMRecord(final SAMFileHeader header, final String name, final Consumer<SAMRecord> extra) {
         Utils.nonNull(header, "header cannot be null");
         Utils.nonNull(name);
 
@@ -275,11 +273,11 @@ public final class Haplotype extends Allele {
     }
 
     /**
-     * Converts the haplotype into a {@link SAMRecord} without extra conversion code.
+     * Converts the haplotype into a {@link SAMRecord}.
      * <p>
-     * This call is equivalent to {@code {@link #convertToSAMRecord(SAMFileHeader, String, Consumer) toSAMRecord(header, name, null)}}.
+     * This call is equivalent to {@code {@link #toSAMRecord(SAMFileHeader, String, Consumer) toSAMRecord(header, name, null)}}.
      * </p>
-     * @see #convertToSAMRecord(SAMFileHeader, String, Consumer)
+     * @see #toSAMRecord(SAMFileHeader, String, Consumer)
      *
      * @param header the header for the output sam-record file associated with the returned record.
      * @param name the name of the resulting SAMRecord.
@@ -288,7 +286,7 @@ public final class Haplotype extends Allele {
      *
      * @return never {@code null}.
      */
-    public SAMRecord convertToSAMRecord(final SAMFileHeader header, final String name) {
-        return convertToSAMRecord(header, name, null);
+    public SAMRecord toSAMRecord(final SAMFileHeader header, final String name) {
+        return toSAMRecord(header, name, null);
     }
 }

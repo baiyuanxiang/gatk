@@ -18,9 +18,6 @@ import org.broadinstitute.hellbender.utils.read.ReadUtils;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.Optional;
-
-import static org.broadinstitute.hellbender.tools.spark.sv.StructuralVariationDiscoveryArgumentCollection.DiscoverVariantsFromContigsAlignmentsSparkArgumentCollection.MISSING_NM;
 
 /**
  * Each assembled contig should have at least one such accompanying structure, or 0 when it is unmapped.
@@ -322,7 +319,7 @@ public final class AlignmentInterval {
         final Cigar cigar = forwardStrand ? this.cigarAlong5to3DirectionOfContig :
                 CigarUtils.invertCigar(this.cigarAlong5to3DirectionOfContig);
 
-        result.setCigar(hardClip ? CigarUtils.hardClip(cigar) : CigarUtils.softClip(cigar));
+        result.setCigar(hardClip ? CigarUtils.hardReclip(cigar) : CigarUtils.softReclip(cigar));
 
         result.setReferenceName(referenceSpan.getContig());
         result.setAlignmentStart(referenceSpan.getStart());
