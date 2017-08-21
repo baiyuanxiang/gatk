@@ -88,9 +88,6 @@ public class BwaMemAlignmentUtils {
             samRecord.setBaseQualities(SAMRecord.NULL_QUALS);
         }
         if ( readGroup != null ) samRecord.setAttribute(SAMTag.RG.name(), readGroup);
-        if (samRecord.isValid() != null) {
-            throw new IllegalStateException(samRecord.isValid().stream().map(s -> s.getMessage()).collect(Collectors.joining(", ")));
-        }
         return samRecord;
     }
 

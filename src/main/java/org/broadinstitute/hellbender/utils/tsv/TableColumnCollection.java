@@ -195,7 +195,7 @@ public final class TableColumnCollection {
     public boolean containsExactly(final String... names) {
         return containsAll(names) && columnCount() == names.length;
     }
-    
+
     /**
      * Checks a column names matches given one.
      * <p>
