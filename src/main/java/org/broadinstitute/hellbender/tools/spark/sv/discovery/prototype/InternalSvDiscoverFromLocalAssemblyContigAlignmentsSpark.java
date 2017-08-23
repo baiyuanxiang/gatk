@@ -13,6 +13,7 @@ import org.broadinstitute.barclay.argparser.BetaFeature;
 import org.broadinstitute.barclay.argparser.CommandLineProgramProperties;
 import org.broadinstitute.hellbender.cmdline.StandardArgumentDefinitions;
 import org.broadinstitute.hellbender.cmdline.programgroups.StructuralVariationSparkProgramGroup;
+import org.broadinstitute.hellbender.engine.datasources.ReferenceMultiSource;
 import org.broadinstitute.hellbender.engine.filters.ReadFilter;
 import org.broadinstitute.hellbender.engine.filters.ReadFilterLibrary;
 import org.broadinstitute.hellbender.engine.spark.GATKSparkTool;
@@ -106,12 +107,15 @@ public final class InternalSvDiscoverFromLocalAssemblyContigAlignmentsSpark exte
             contigsByPossibleRawTypes.forEach((k, v) -> writeSAM(v, k.name(), reads, headerBroadcast, outputDir, localLogger));
         }
 
+        final Broadcast<ReferenceMultiSource> referenceMultiSourceBroadcast = ctx.broadcast(getReference());
+
         new InsDelVariantDetector()
                 .inferSvAndWriteVCF(contigsByPossibleRawTypes.get(RawTypes.InsDel), outputDir+"/"+RawTypes.InsDel.name()+".vcf",
-                        ctx.broadcast(getReference()), discoverStageArgs.fastaReference,
-                        localLogger);
+                        referenceMultiSourceBroadcast, discoverStageArgs.fastaReference, localLogger);
 
-        // TODO: 8/23/17 add code to deal with simple strand switch case
+        new SimpleStrandSwitchVariantDetector()
+                .inferSvAndWriteVCF(contigsByPossibleRawTypes.get(RawTypes.Inv), outputDir+"/"+RawTypes.Inv.name()+".vcf",
+                        referenceMultiSourceBroadcast, discoverStageArgs.fastaReference, localLogger);
     }
 
     private enum RawTypes {

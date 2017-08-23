@@ -47,7 +47,7 @@ public abstract class BreakEndVariantType extends SvType {
 
 
         static byte[] extractBasesForAltAllele(final NovelAdjacencyReferenceLocations narl, final boolean forUpstreamLoc,
-                                                               final ReferenceMultiSource reference) {
+                                               final ReferenceMultiSource reference) {
             try {
                 final byte[] ref = reference
                         .getReferenceBases(null, forUpstreamLoc ? narl.leftJustifiedLeftRefLoc :
