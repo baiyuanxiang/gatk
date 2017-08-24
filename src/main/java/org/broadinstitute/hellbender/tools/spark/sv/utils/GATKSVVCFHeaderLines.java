@@ -4,7 +4,10 @@ import htsjdk.variant.vcf.*;
 import org.broadinstitute.hellbender.utils.Utils;
 import org.broadinstitute.hellbender.utils.variant.GATKVCFConstants;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
 
 // TODO: 7/24/17 the structure of this file is resembling that of {@link GATKVCFHeaderLines}, should we move this there?
 public class GATKSVVCFHeaderLines {

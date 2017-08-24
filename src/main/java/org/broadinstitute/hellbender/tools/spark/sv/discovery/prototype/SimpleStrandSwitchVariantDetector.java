@@ -1,6 +1,6 @@
 package org.broadinstitute.hellbender.tools.spark.sv.discovery.prototype;
 
-import avro.shaded.com.google.common.annotations.VisibleForTesting;
+import com.google.common.annotations.VisibleForTesting;
 import htsjdk.samtools.Cigar;
 import htsjdk.samtools.CigarElement;
 import htsjdk.samtools.CigarOperator;
