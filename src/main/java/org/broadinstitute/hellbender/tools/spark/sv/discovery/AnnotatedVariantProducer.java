@@ -25,31 +25,40 @@ import java.util.stream.Collectors;
 public class AnnotatedVariantProducer implements Serializable {
     private static final long serialVersionUID = 1L;
 
-    public static Iterator<VariantContext> produceMultipleAnnotatedVcFromNovelAdjacency(final NovelAdjacencyReferenceLocations novelAdjacencyReferenceLocations,
-                                                                                        final Iterable<SvType> inferredType,
-                                                                                        final Iterable<ChimericAlignment> contigAlignments,
-                                                                                        final Broadcast<ReferenceMultiSource> broadcastReference)
+    /**
+     * Given novel adjacency and inferred BND variant types, produce annotated (and mate-connected) VCF BND records.
+     * @param novelAdjacencyReferenceLocations  novel adjacency suggesting BND records
+     * @param inferredType                      BND variants of mates to each other, assumed to be of size 2
+     * @param contigAlignments                  chimeric alignments of supporting contig
+     * @param broadcastReference                reference
+     * @throws IOException
+     */
+    public static List<VariantContext> produceAnnotatedBNDmatesVcFromNovelAdjacency(final NovelAdjacencyReferenceLocations novelAdjacencyReferenceLocations,
+                                                                                    final List<SvType> inferredType,
+                                                                                    final Iterable<ChimericAlignment> contigAlignments,
+                                                                                    final Broadcast<ReferenceMultiSource> broadcastReference)
             throws IOException {
 
-        Utils.validateArg(inferredType.iterator().hasNext(),
-                "Input novel adjacency doesn't have any inferred type: \n" +
+        Utils.validateArg(inferredType.size() == 2,
+                "Input novel adjacency doesn't seem to suggest mated BND records: \n" +
+                        novelAdjacencyReferenceLocations.toString() + "\n" +
                         Utils.stream(contigAlignments).map(ChimericAlignment::onErrStringRep).collect(Collectors.toList()));
 
-        final Iterator<SvType> it = inferredType.iterator();
-        final VariantContext record =
+        final VariantContext firstMate =
                 produceAnnotatedVcFromInferredTypeAndRefLocations(novelAdjacencyReferenceLocations.leftJustifiedLeftRefLoc, -1,
-                        novelAdjacencyReferenceLocations.complication, it.next(), contigAlignments, broadcastReference);
+                        novelAdjacencyReferenceLocations.complication, inferredType.get(0), contigAlignments, broadcastReference);
 
-        final List<VariantContext> result = new ArrayList<>();
-        result.add(record);
-        // hack for now because up to this point inferredType would have max of 2 only
-        while (it.hasNext()) {
-            final VariantContext mateRecord =
-                    produceAnnotatedVcFromInferredTypeAndRefLocations(novelAdjacencyReferenceLocations.leftJustifiedRightRefLoc, -1,
-                            novelAdjacencyReferenceLocations.complication, it.next(), contigAlignments, broadcastReference);
-            result.add(mateRecord);
-        }
-        return result.iterator();
+        final VariantContext secondMate =
+                produceAnnotatedVcFromInferredTypeAndRefLocations(novelAdjacencyReferenceLocations.leftJustifiedRightRefLoc, -1,
+                        novelAdjacencyReferenceLocations.complication, inferredType.get(1), contigAlignments, broadcastReference);
+
+        final VariantContextBuilder builder0 = new VariantContextBuilder(firstMate);
+        builder0.attribute(GATKSVVCFConstants.BND_MATEID_STR, secondMate.getID());
+
+        final VariantContextBuilder builder1 = new VariantContextBuilder(secondMate);
+        builder1.attribute(GATKSVVCFConstants.BND_MATEID_STR, firstMate.getID());
+
+        return Arrays.asList(builder0.make(), builder1.make());
     }
 
     // TODO: 12/12/16 does not handle translocation yet

@@ -132,7 +132,7 @@ public final class InternalFilterLongReadAlignmentsSAMSpark extends GATKSparkToo
                         new Tuple2<>(alignedContig.contigName,
                                 ChimericAlignment.parseOneContig(alignedContig, DEFAULT_MIN_ALIGNMENT_LENGTH).stream()
                                         .flatMap(chimericAlignment -> chimericAlignment.getAlignmentIntervals().stream())
-                                        .sorted(AlignedContig.sortAlignments())
+                                        .sorted(AlignedContig.getAlignmentIntervalComparator())
                                         .collect(Collectors.toList())))
                 .sortByKey()
                 .mapValues(ailist -> ailist.stream().map(AlignmentInterval::toPackedString)
@@ -235,7 +235,7 @@ public final class InternalFilterLongReadAlignmentsSAMSpark extends GATKSparkToo
         final List<List<AlignmentInterval>> allConfigurations = Sets.powerSet(new HashSet<>(alignmentIntervals))
                 .stream().map(ArrayList::new)
                 // make sure within each configuration, alignments would be sorted as they would be in a corresponding AlignedContig
-                .map(ls -> ls.stream().sorted(AlignedContig.sortAlignments()).collect(Collectors.toList()))
+                .map(ls -> ls.stream().sorted(AlignedContig.getAlignmentIntervalComparator()).collect(Collectors.toList()))
                 .collect(Collectors.toList());
 
         final List<Double> scores = allConfigurations.stream()

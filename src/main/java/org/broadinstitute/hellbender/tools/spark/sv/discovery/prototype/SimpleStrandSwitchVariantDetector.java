@@ -34,16 +34,16 @@ final class SimpleStrandSwitchVariantDetector implements VariantDetectorFromLoca
     static final int MORE_RELAXED_ALIGNMENT_MIN_LENGTH = 30;
     static final int MORE_RELAXED_ALIGNMENT_MIN_MQ = 20;
 
-    public void inferSvAndWriteVCF(final JavaRDD<AlignedContig> longReads, final String vcfOutputFileName,
+    public void inferSvAndWriteVCF(final JavaRDD<AlignedContig> contigs, final String vcfOutputFileName,
                                    final Broadcast<ReferenceMultiSource> broadcastReference, final String fastaReference,
                                    final Logger toolLogger) {
 
-        longReads.cache();
-        toolLogger.info(longReads.count() + " chimera indicating either 1) simple strand-switch breakpoints, or 2) inverted duplication.");
+        contigs.cache();
+        toolLogger.info(contigs.count() + " chimeras indicating either 1) simple strand-switch breakpoints, or 2) inverted duplication.");
 
         // split between suspected inv dup VS strand-switch breakpoint
         final Tuple2<JavaRDD<AlignedContig>, JavaRDD<AlignedContig>> split
-                = RDDUtils.split(longReads.map(SimpleStrandSwitchVariantDetector::removeOverlap),
+                = RDDUtils.split(contigs.map(SimpleStrandSwitchVariantDetector::removeOverlap),
                                   new IsLikelyInvertedDuplication(), true);
 
         final JavaRDD<VariantContext> simpleStrandSwitchBkpts =
@@ -57,9 +57,9 @@ final class SimpleStrandSwitchVariantDetector implements VariantDetectorFromLoca
     public static final class IsLikelyInvertedDuplication implements SerializablePredicate<AlignedContig> {
         private static final long serialVersionUID = 1L;
         @Override
-        public boolean test(final AlignedContig longRead) {
-            return BreakpointComplications.isLikelyInvertedDuplication(longRead.alignmentIntervals.get(0),
-                                                                       longRead.alignmentIntervals.get(1));
+        public boolean test(final AlignedContig contig) {
+            return BreakpointComplications.isLikelyInvertedDuplication(contig.alignmentIntervals.get(0),
+                                                                       contig.alignmentIntervals.get(1));
         }
     }
 
@@ -69,14 +69,14 @@ final class SimpleStrandSwitchVariantDetector implements VariantDetectorFromLoca
      * Removes overlap from a designated alignment interval, so that the inverted duplicated reference span is minimal.
      * If the two alignment intervals are NOT overlapping, return the original read.
      */
-    private static AlignedContig removeOverlap(final AlignedContig longRead) {
-        final int overlapOnRead = AlignmentInterval.overlapOnContig(longRead.alignmentIntervals.get(0),
-                                                                    longRead.alignmentIntervals.get(1));
+    private static AlignedContig removeOverlap(final AlignedContig contig) {
+        final int overlapOnRead = AlignmentInterval.overlapOnContig(contig.alignmentIntervals.get(0),
+                                                                    contig.alignmentIntervals.get(1));
         if (overlapOnRead==0) {
-            return longRead;
+            return contig;
         } else {
-            final AlignmentInterval one = longRead.alignmentIntervals.get(0),
-                                    two = longRead.alignmentIntervals.get(1);
+            final AlignmentInterval one = contig.alignmentIntervals.get(0),
+                                    two = contig.alignmentIntervals.get(1);
             final int js = one.referenceSpan.getEnd(),
                       jl = two.referenceSpan.getStart();
             final AlignmentInterval reconstructedOne, reconstructedTwo;
@@ -87,9 +87,9 @@ final class SimpleStrandSwitchVariantDetector implements VariantDetectorFromLoca
                 reconstructedOne = clipAlignmentInterval(one, overlapOnRead, true);
                 reconstructedTwo = two;
             }
-            return new AlignedContig(longRead.contigName, longRead.contigSequence,
+            return new AlignedContig(contig.contigName, contig.contigSequence,
                                      Arrays.asList(reconstructedOne, reconstructedTwo),
-                                     longRead.hasEquallyGoodAlnConfigurations);
+                                     contig.hasEquallyGoodAlnConfigurations);
         }
     }
 
@@ -114,19 +114,19 @@ final class SimpleStrandSwitchVariantDetector implements VariantDetectorFromLoca
 
         final Tuple3<List<CigarElement>, List<CigarElement>, List<CigarElement>> threeSections = extractCigarElements(input);
 
-        final List<CigarElement> cigarElements = threeSections._2();
+        final List<CigarElement> unclippedCigarElementsForThisAlignment = threeSections._2();
         int idx;
         final int step, stop;
         if (clipFrom3PrimeEnd) {
-            idx = cigarElements.size() - 1; step = -1; stop = -1;
+            idx = unclippedCigarElementsForThisAlignment.size() - 1; step = -1; stop = -1;
         } else {
-            idx = 0; step = 1; stop = cigarElements.size();
+            idx = 0; step = 1; stop = unclippedCigarElementsForThisAlignment.size();
         }
 
         Cigar newCigar = new Cigar();
         int readBasesConsumed = 0, refBasesConsumed = 0;
         while (stop != idx) {
-            final CigarElement ce = cigarElements.get(idx);
+            final CigarElement ce = unclippedCigarElementsForThisAlignment.get(idx);
             if ( ce.getOperator().equals(CigarOperator.HARD_CLIP))
                 continue;
             if ( ce.getOperator().consumesReadBases() ) {
@@ -142,7 +142,7 @@ final class SimpleStrandSwitchVariantDetector implements VariantDetectorFromLoca
                     final int a = readBasesConsumed + ce.getLength() - clipLength;
                     final CigarOperator op = ce.getOperator().isAlignment() ? CigarOperator.M : CigarOperator.S;
                     if (clipFrom3PrimeEnd) {
-                        resultCEs.addAll(cigarElements.subList(0, idx));
+                        resultCEs.addAll(unclippedCigarElementsForThisAlignment.subList(0, idx));
                         if (a!=0) {
                             resultCEs.add( new CigarElement(a, op) );
                         }
@@ -152,7 +152,7 @@ final class SimpleStrandSwitchVariantDetector implements VariantDetectorFromLoca
                         if (a!=0) {
                             resultCEs.add( new CigarElement(a, op) );
                         }
-                        resultCEs.addAll(cigarElements.subList(idx+1, cigarElements.size()));
+                        resultCEs.addAll(unclippedCigarElementsForThisAlignment.subList(idx+1, unclippedCigarElementsForThisAlignment.size()));
                     }
                     if (!threeSections._3().isEmpty())
                         resultCEs.addAll(threeSections._3());
@@ -218,14 +218,14 @@ final class SimpleStrandSwitchVariantDetector implements VariantDetectorFromLoca
      *          otherwise a pair {chimeric alignment, read sequence}
      */
     private static Tuple2<ChimericAlignment, byte[]> convertAlignmentIntervalToChimericAlignment
-    (final AlignedContig longReadWith2AIMappedToSameChrAndStrandSwitch) {
+    (final AlignedContig contigWith2AIMappedToSameChrAndStrandSwitch) {
 
-        final AlignmentInterval intervalOne = longReadWith2AIMappedToSameChrAndStrandSwitch.alignmentIntervals.get(0),
-                intervalTwo = longReadWith2AIMappedToSameChrAndStrandSwitch.alignmentIntervals.get(1);
+        final AlignmentInterval intervalOne = contigWith2AIMappedToSameChrAndStrandSwitch.alignmentIntervals.get(0),
+                intervalTwo = contigWith2AIMappedToSameChrAndStrandSwitch.alignmentIntervals.get(1);
 
         if (splitPairStrongEnoughEvidenceForCA(intervalOne, intervalTwo, MORE_RELAXED_ALIGNMENT_MIN_MQ,  MORE_RELAXED_ALIGNMENT_MIN_LENGTH)) {
             return new Tuple2<>(new ChimericAlignment(intervalOne, intervalTwo, EMPTY_INSERTION_MAPPINGS,
-                    longReadWith2AIMappedToSameChrAndStrandSwitch.contigName), longReadWith2AIMappedToSameChrAndStrandSwitch.contigSequence);
+                    contigWith2AIMappedToSameChrAndStrandSwitch.contigName), contigWith2AIMappedToSameChrAndStrandSwitch.contigSequence);
         } else {
             return null;
         }
@@ -255,16 +255,16 @@ final class SimpleStrandSwitchVariantDetector implements VariantDetectorFromLoca
 
     // =================================================================================================================
 
-    private JavaRDD<VariantContext> dealWithSimpleStrandSwitchBkpts(final JavaRDD<AlignedContig> longReads,
+    private JavaRDD<VariantContext> dealWithSimpleStrandSwitchBkpts(final JavaRDD<AlignedContig> contigs,
                                                                     final Broadcast<ReferenceMultiSource> broadcastReference,
                                                                     final Logger toolLogger) {
 
         final JavaPairRDD<ChimericAlignment, byte[]> simpleStrandSwitchBkpts =
-                longReads
+                contigs
                         .mapToPair(SimpleStrandSwitchVariantDetector::convertAlignmentIntervalToChimericAlignment)
                         .filter(Objects::nonNull).cache();
 
-        toolLogger.info(simpleStrandSwitchBkpts.count() + " chimera indicating simple strand-switch breakpoints.");
+        toolLogger.info(simpleStrandSwitchBkpts.count() + " chimeras indicating simple strand-switch breakpoints.");
 
         return simpleStrandSwitchBkpts
                 .mapToPair(pair -> new Tuple2<>(new NovelAdjacencyReferenceLocations(pair._1, pair._2), pair._1))
@@ -272,11 +272,11 @@ final class SimpleStrandSwitchVariantDetector implements VariantDetectorFromLoca
                 .mapToPair(noveltyAndEvidence -> inferBNDType(noveltyAndEvidence, broadcastReference.getValue()))
                 .flatMap(noveltyTypeAndEvidence ->
                         AnnotatedVariantProducer
-                                .produceMultipleAnnotatedVcFromNovelAdjacency(noveltyTypeAndEvidence._1,
-                                        noveltyTypeAndEvidence._2._1, noveltyTypeAndEvidence._2._2, broadcastReference));
+                                .produceAnnotatedBNDmatesVcFromNovelAdjacency(noveltyTypeAndEvidence._1,
+                                        noveltyTypeAndEvidence._2._1, noveltyTypeAndEvidence._2._2, broadcastReference).iterator());
     }
 
-    private static Tuple2<NovelAdjacencyReferenceLocations, Tuple2<Iterable<SvType>, Iterable<ChimericAlignment>>>
+    private static Tuple2<NovelAdjacencyReferenceLocations, Tuple2<List<SvType>, Iterable<ChimericAlignment>>>
     inferBNDType(final Tuple2<NovelAdjacencyReferenceLocations, Iterable<ChimericAlignment>> noveltyAndEvidence,
                  final ReferenceMultiSource reference) {
 

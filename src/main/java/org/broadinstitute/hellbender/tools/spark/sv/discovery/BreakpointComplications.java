@@ -151,6 +151,7 @@ public final class BreakpointComplications {
     }
 
     /**
+     * todo : see ticket #3529
      * @return true iff the two AI of the {@code longRead} overlaps on reference is more than half of the two AI's minimal read span.
      */
     @VisibleForTesting
