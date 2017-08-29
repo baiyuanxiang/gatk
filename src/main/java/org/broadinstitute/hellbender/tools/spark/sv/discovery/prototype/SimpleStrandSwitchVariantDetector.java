@@ -4,6 +4,7 @@ import com.google.common.annotations.VisibleForTesting;
 import htsjdk.samtools.Cigar;
 import htsjdk.samtools.CigarElement;
 import htsjdk.samtools.CigarOperator;
+import htsjdk.samtools.TextCigarCodec;
 import htsjdk.variant.variantcontext.VariantContext;
 import org.apache.logging.log4j.Logger;
 import org.apache.spark.api.java.JavaPairRDD;
@@ -34,6 +35,7 @@ final class SimpleStrandSwitchVariantDetector implements VariantDetectorFromLoca
     static final int MORE_RELAXED_ALIGNMENT_MIN_LENGTH = 30;
     static final int MORE_RELAXED_ALIGNMENT_MIN_MQ = 20;
 
+    @Override
     public void inferSvAndWriteVCF(final JavaRDD<AlignedContig> contigs, final String vcfOutputFileName,
                                    final Broadcast<ReferenceMultiSource> broadcastReference, final String fastaReference,
                                    final Logger toolLogger) {
@@ -41,7 +43,10 @@ final class SimpleStrandSwitchVariantDetector implements VariantDetectorFromLoca
         contigs.cache();
         toolLogger.info(contigs.count() + " chimeras indicating either 1) simple strand-switch breakpoints, or 2) inverted duplication.");
 
-        // split between suspected inv dup VS strand-switch breakpoint
+        // split between suspected inv dup VS strand-switch breakpoints
+        // logic flow: first modify alignments (heuristically) if there are overlaps on read between the alignments,
+        //             then split the input reads into two classes--those judged by IsLikelyInvertedDuplication are likely invdup and those aren't
+        //             finally send the two split reads down different path, one for invdup and one for BND records
         final Tuple2<JavaRDD<AlignedContig>, JavaRDD<AlignedContig>> split
                 = RDDUtils.split(contigs.map(SimpleStrandSwitchVariantDetector::removeOverlap),
                                   new IsLikelyInvertedDuplication(), true);
@@ -67,7 +72,8 @@ final class SimpleStrandSwitchVariantDetector implements VariantDetectorFromLoca
 
     /**
      * Removes overlap from a designated alignment interval, so that the inverted duplicated reference span is minimal.
-     * If the two alignment intervals are NOT overlapping, return the original read.
+     * If the two alignment intervals are NOT overlapping, return the original aligned contig.
+     * For algorithm {@see <a href="https://github.com/broadinstitute/dsde-methods-sv/pull/8"}
      */
     private static AlignedContig removeOverlap(final AlignedContig contig) {
         final int overlapOnRead = AlignmentInterval.overlapOnContig(contig.alignmentIntervals.get(0),
@@ -77,6 +83,8 @@ final class SimpleStrandSwitchVariantDetector implements VariantDetectorFromLoca
         } else {
             final AlignmentInterval one = contig.alignmentIntervals.get(0),
                                     two = contig.alignmentIntervals.get(1);
+            // js is for "the shoot-off reference location of a jump that linked to alignment intervals", and
+            // jl is for "that jump's landing reference location"
             final int js = one.referenceSpan.getEnd(),
                       jl = two.referenceSpan.getStart();
             final AlignmentInterval reconstructedOne, reconstructedTwo;
@@ -93,73 +101,75 @@ final class SimpleStrandSwitchVariantDetector implements VariantDetectorFromLoca
         }
     }
 
-    private static AlignmentInterval clipAlignmentInterval(final AlignmentInterval input, final int clipLength,
+    /**
+     * Given {@code clipLengthOnRead} to be clipped from an aligned contig's {@link AlignmentInterval} {@code input},
+     * return a modified {@link AlignmentInterval} with the requested number of bases clipped away and ref span recomputed.
+     * @param input                 alignment to be modified (record not modified in place)
+     * @param clipLengthOnRead      number of read bases to be clipped away
+     * @param clipFrom3PrimeEnd     to clip from the 3' end of the read or not
+     */
+    private static AlignmentInterval clipAlignmentInterval(final AlignmentInterval input, final int clipLengthOnRead,
                                                            final boolean clipFrom3PrimeEnd) {
-        Utils.validateArg(clipLength < input.endInAssembledContig - input.startInAssembledContig + 1,
-                            "input alignment to be clipped away: " + input.toPackedString() + "\twith clip length: " + clipLength);
+        Utils.validateArg(clipLengthOnRead < input.endInAssembledContig - input.startInAssembledContig + 1,
+                            "input alignment to be clipped away: " + input.toPackedString() + "\twith clip length: " + clipLengthOnRead);
 
-        final Tuple2<SimpleInterval, Cigar> result = computeNewRefSpanAndCigar(input, clipLength, clipFrom3PrimeEnd);
-        return new AlignmentInterval(result._1, input.startInAssembledContig, input.endInAssembledContig - clipLength,
-                result._2, input.forwardStrand, input.mapQual,
+        final Tuple2<SimpleInterval, Cigar> result = computeNewRefSpanAndCigar(input, clipLengthOnRead, clipFrom3PrimeEnd);
+        final int newTigStart, newTigEnd;
+        if (clipFrom3PrimeEnd) {
+            newTigStart = input.startInAssembledContig;
+            newTigEnd   = input.endInAssembledContig - clipLengthOnRead;
+        } else {
+            newTigStart = input.startInAssembledContig + clipLengthOnRead;
+            newTigEnd   = input.endInAssembledContig;
+        }
+        return new AlignmentInterval(result._1, newTigStart, newTigEnd, result._2, input.forwardStrand, input.mapQual,
                 StructuralVariationDiscoveryArgumentCollection.DiscoverVariantsFromContigsAlignmentsSparkArgumentCollection.MISSING_NM,
                 input.alnScore, input.isFromSplitGapAlignment, input.hasUndergoneOverlapRemoval);
     }
 
+    /**
+     * Given {@code clipLengthOnRead} to be clipped from an aligned contig's {@link AlignmentInterval} {@code input},
+     * return a modified reference span with the requested number of bases clipped away and new cigar.
+     * @param input                 alignment to be modified (record not modified in place)
+     * @param clipLengthOnRead      number of read bases to be clipped away
+     * @param clipFrom3PrimeEnd     to clip from the 3' end of the read or not
+     * @throws IllegalArgumentException if the {@code input} alignment contains {@link CigarOperator#P} or {@link CigarOperator#N} operations
+     */
     @VisibleForTesting
-    static Tuple2<SimpleInterval, Cigar> computeNewRefSpanAndCigar(final AlignmentInterval input, final int clipLength,
+    static Tuple2<SimpleInterval, Cigar> computeNewRefSpanAndCigar(final AlignmentInterval input, final int clipLengthOnRead,
                                                                    final boolean clipFrom3PrimeEnd) {
         Utils.validateArg(input.cigarAlong5to3DirectionOfContig.getCigarElements().stream().map(CigarElement::getOperator)
                         .noneMatch(op -> op.equals(CigarOperator.N) || op.isPadding()),
                 "Input alignment contains padding or skip operations, which is currently unsupported: " + input.toPackedString());
 
-        final Tuple3<List<CigarElement>, List<CigarElement>, List<CigarElement>> threeSections = extractCigarElements(input);
-
+        final Tuple3<List<CigarElement>, List<CigarElement>, List<CigarElement>> threeSections = splitCigarByLeftAndRightClipping(input);
+        final List<CigarElement> leftClippings = threeSections._1();
         final List<CigarElement> unclippedCigarElementsForThisAlignment = threeSections._2();
-        int idx;
-        final int step, stop;
-        if (clipFrom3PrimeEnd) {
-            idx = unclippedCigarElementsForThisAlignment.size() - 1; step = -1; stop = -1;
-        } else {
-            idx = 0; step = 1; stop = unclippedCigarElementsForThisAlignment.size();
-        }
+        final List<CigarElement> rightClippings = threeSections._3();
 
-        Cigar newCigar = new Cigar();
         int readBasesConsumed = 0, refBasesConsumed = 0;
-        while (stop != idx) {
-            final CigarElement ce = unclippedCigarElementsForThisAlignment.get(idx);
-            if ( ce.getOperator().equals(CigarOperator.HARD_CLIP))
-                continue;
-            if ( ce.getOperator().consumesReadBases() ) {
-                if (readBasesConsumed + ce.getLength() < clipLength)
+        final List<CigarElement> cigarElements = new ArrayList<>(unclippedCigarElementsForThisAlignment);
+        if (clipFrom3PrimeEnd) Collections.reverse(cigarElements);
+        final List<CigarElement> newMiddleSection = new ArrayList<>(unclippedCigarElementsForThisAlignment.size());
+        for (int idx = 0; idx < cigarElements.size(); ++idx) {
+            final CigarElement ce = cigarElements.get(idx);
+            if (ce.getOperator().consumesReadBases()) {
+                if (readBasesConsumed + ce.getLength() < clipLengthOnRead) {
                     readBasesConsumed += ce.getLength();
-                else { // enough read bases would be clipped
+                } else { // enough read bases would be clipped, note that here we can have only either 'M' or 'I'
 
-                    if ( !ce.getOperator().isAlignment() && !ce.getOperator().equals(CigarOperator.I))
-                        throw new GATKException.ShouldNeverReachHereException("Logic error, should not reach here");
+                    if (!ce.getOperator().isAlignment() && !ce.getOperator().equals(CigarOperator.I))
+                        throw new GATKException.ShouldNeverReachHereException("Logic error, should not reach here: operation consumes read bases but is neither alignment nor insertion.\n " +
+                                "Original cigar(" + TextCigarCodec.encode(input.cigarAlong5to3DirectionOfContig) + ")\tclipLengthOnRead(" + clipLengthOnRead + ")\t" + (clipFrom3PrimeEnd ? "clipFrom3PrimeEnd" : "clipFrom5PrimeEnd"));
 
-                    // dead with cigar first
-                    final List<CigarElement> resultCEs = threeSections._1();
-                    final int a = readBasesConsumed + ce.getLength() - clipLength;
-                    final CigarOperator op = ce.getOperator().isAlignment() ? CigarOperator.M : CigarOperator.S;
-                    if (clipFrom3PrimeEnd) {
-                        resultCEs.addAll(unclippedCigarElementsForThisAlignment.subList(0, idx));
-                        if (a!=0) {
-                            resultCEs.add( new CigarElement(a, op) );
-                        }
-                        resultCEs.add(new CigarElement(clipLength, CigarOperator.S));
-                    } else {
-                        resultCEs.add(new CigarElement(clipLength, CigarOperator.S));
-                        if (a!=0) {
-                            resultCEs.add( new CigarElement(a, op) );
-                        }
-                        resultCEs.addAll(unclippedCigarElementsForThisAlignment.subList(idx+1, unclippedCigarElementsForThisAlignment.size()));
-                    }
-                    if (!threeSections._3().isEmpty())
-                        resultCEs.addAll(threeSections._3());
-                    newCigar = new Cigar(SvCigarUtils.compactifyNeighboringSoftClippings(resultCEs));
+                    // deal with cigar first
+                    newMiddleSection.add( new CigarElement(clipLengthOnRead, CigarOperator.S) );
+                    final int a = readBasesConsumed + ce.getLength() - clipLengthOnRead;
+                    if (a!=0) newMiddleSection.add( new CigarElement(a, ce.getOperator().isAlignment() ? CigarOperator.M : CigarOperator.S) );
+                    newMiddleSection.addAll( cigarElements.subList(idx+1, cigarElements.size()) );
 
-                    // then deal with ref span, note that here we can have only either 'M' or 'I'
-                    refBasesConsumed += ce.getOperator().isAlignment() ? (clipLength - readBasesConsumed)
+                    // then deal with ref span
+                    refBasesConsumed += ce.getOperator().isAlignment() ? (clipLengthOnRead - readBasesConsumed)
                                                                        : ce.getLength();
 
                     break;
@@ -168,12 +178,12 @@ final class SimpleStrandSwitchVariantDetector implements VariantDetectorFromLoca
             if ( ce.getOperator().consumesReferenceBases() ) { // if reaches here, not enough read bases have been consumed
                 refBasesConsumed += ce.getLength();
             }
-            idx += step;
         }
-
+        if (clipFrom3PrimeEnd) Collections.reverse(newMiddleSection);
+        final Cigar newCigar = constructNewCigar(leftClippings, newMiddleSection, rightClippings);
         if (newCigar.getCigarElements().isEmpty())
             throw new GATKException("Logic error: new cigar is empty.\t" + input.toPackedString() + "\tclip length " +
-                    clipLength + "\tclip from end " + (clipFrom3PrimeEnd? "3":"5"));
+                    clipLengthOnRead + "\tclip from end " + (clipFrom3PrimeEnd? "3":"5"));
 
         final SimpleInterval newRefSpan;
         if (clipFrom3PrimeEnd == input.forwardStrand) {
@@ -187,11 +197,23 @@ final class SimpleStrandSwitchVariantDetector implements VariantDetectorFromLoca
         return new Tuple2<>(newRefSpan, newCigar);
     }
 
-    private static Tuple3<List<CigarElement>, List<CigarElement>, List<CigarElement>> extractCigarElements(final AlignmentInterval input) {
+    /**
+     * Extract, from provided {@code input} alignment, three parts of cigar elements:
+     * <ul>
+     *     <li> a list of cigar elements leading to the start position of the input alignment on the read</li>
+     *     <li> </li>
+     *     <li> a list of cigar elements after the end position of the input alignment on the read</li>
+     * </ul>
+     * For example, an alignment with cigar "10H20S5M15I25M35D45M30S40H" with start pos 31 and end pos 120,
+     * the result would be ([10H, 20S], [5M, 15I, 25M, 35D, 45M], [30S, 40H]).
+     */
+    @VisibleForTesting
+    static Tuple3<List<CigarElement>, List<CigarElement>, List<CigarElement>> splitCigarByLeftAndRightClipping(final AlignmentInterval input) {
         final List<CigarElement> cigarElements = input.cigarAlong5to3DirectionOfContig.getCigarElements();
         final List<CigarElement> left = new ArrayList<>(cigarElements.size()),
                                  middle = new ArrayList<>(cigarElements.size()),
                                  right = new ArrayList<>(cigarElements.size());
+        // using input's startInAssembledContig and endInAssembledContig in testing conditions because they must be the boundaries of alignment operations
         int readBasesConsumed = 0;
         for(final CigarElement ce : cigarElements) {
             if (readBasesConsumed < input.startInAssembledContig-1) {
@@ -210,25 +232,30 @@ final class SimpleStrandSwitchVariantDetector implements VariantDetectorFromLoca
         return new Tuple3<>(left, middle, right);
     }
 
+    private static Cigar constructNewCigar(final List<CigarElement> left, final List<CigarElement> middle, final List<CigarElement> right) {
+        final Cigar cigar = new Cigar(left);
+        middle.forEach(cigar::add);
+        right.forEach(cigar::add);
+        return new Cigar(SvCigarUtils.compactifyNeighboringSoftClippings(cigar.getCigarElements()));
+    }
+    // =================================================================================================================
+
     /**
-     * Taking advantage of the fact that for input read, we know it has only two alignments that map to the same reference
-     * chromosome, with strand switch.
-     * @return  null if the pair of the alignments are no strong enough to support a strand switch breakpoint
-     *                  {@link #splitPairStrongEnoughEvidenceForCA(AlignmentInterval, AlignmentInterval, int, int)},
-     *          otherwise a pair {chimeric alignment, read sequence}
+     * @throws IllegalArgumentException if the assumption that the input aligned assembly contig has 2 alignments
+     *                                  mapped to the same chr with strand switch is invalid
      */
-    private static Tuple2<ChimericAlignment, byte[]> convertAlignmentIntervalToChimericAlignment
+    private static Tuple2<ChimericAlignment, byte[]> convertAlignmentIntervalsToChimericAlignment
     (final AlignedContig contigWith2AIMappedToSameChrAndStrandSwitch) {
+        Utils.validateArg(InternalSvDiscoverFromLocalAssemblyContigAlignmentsSpark.isLikelyInvBreakpointOrInsInv(contigWith2AIMappedToSameChrAndStrandSwitch),
+                "assumption that input aligned assembly contig has 2 alignments mapped to the same chr with strand switch is invalid.\n" +
+                        InternalSvDiscoverFromLocalAssemblyContigAlignmentsSpark.onErrorStringRepForAlignedContig(contigWith2AIMappedToSameChrAndStrandSwitch));
 
         final AlignmentInterval intervalOne = contigWith2AIMappedToSameChrAndStrandSwitch.alignmentIntervals.get(0),
-                intervalTwo = contigWith2AIMappedToSameChrAndStrandSwitch.alignmentIntervals.get(1);
+                                intervalTwo = contigWith2AIMappedToSameChrAndStrandSwitch.alignmentIntervals.get(1);
 
-        if (splitPairStrongEnoughEvidenceForCA(intervalOne, intervalTwo, MORE_RELAXED_ALIGNMENT_MIN_MQ,  MORE_RELAXED_ALIGNMENT_MIN_LENGTH)) {
-            return new Tuple2<>(new ChimericAlignment(intervalOne, intervalTwo, EMPTY_INSERTION_MAPPINGS,
-                    contigWith2AIMappedToSameChrAndStrandSwitch.contigName), contigWith2AIMappedToSameChrAndStrandSwitch.contigSequence);
-        } else {
-            return null;
-        }
+        // TODO: 8/28/17 this default empty insertion mapping treatment is temporary and should be fixed later
+        return new Tuple2<>(new ChimericAlignment(intervalOne, intervalTwo, EMPTY_INSERTION_MAPPINGS,
+                contigWith2AIMappedToSameChrAndStrandSwitch.contigName), contigWith2AIMappedToSameChrAndStrandSwitch.contigSequence);
     }
 
     /**
@@ -248,21 +275,22 @@ final class SimpleStrandSwitchVariantDetector implements VariantDetectorFromLoca
         final int overlap = AlignmentInterval.overlapOnContig(intervalOne, intervalTwo);
 
         final int x = intervalOne.endInAssembledContig - intervalOne.startInAssembledContig + 1,
-                y = intervalTwo.endInAssembledContig - intervalTwo.startInAssembledContig + 1;
+                  y = intervalTwo.endInAssembledContig - intervalTwo.startInAssembledContig + 1;
 
         return Math.min(x - overlap, y - overlap) >= alignmentLengthThresholdInclusive;
     }
 
-    // =================================================================================================================
-
+    // workflow manager for simple strand-switch alignment contigs
     private JavaRDD<VariantContext> dealWithSimpleStrandSwitchBkpts(final JavaRDD<AlignedContig> contigs,
                                                                     final Broadcast<ReferenceMultiSource> broadcastReference,
                                                                     final Logger toolLogger) {
 
         final JavaPairRDD<ChimericAlignment, byte[]> simpleStrandSwitchBkpts =
                 contigs
-                        .mapToPair(SimpleStrandSwitchVariantDetector::convertAlignmentIntervalToChimericAlignment)
-                        .filter(Objects::nonNull).cache();
+                        .filter(tig ->
+                                splitPairStrongEnoughEvidenceForCA(tig.alignmentIntervals.get(0), tig.alignmentIntervals.get(1),
+                                        MORE_RELAXED_ALIGNMENT_MIN_MQ,  MORE_RELAXED_ALIGNMENT_MIN_LENGTH))
+                        .mapToPair(SimpleStrandSwitchVariantDetector::convertAlignmentIntervalsToChimericAlignment).cache();
 
         toolLogger.info(simpleStrandSwitchBkpts.count() + " chimeras indicating simple strand-switch breakpoints.");
 

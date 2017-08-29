@@ -134,7 +134,7 @@ public final class InternalSvDiscoverFromLocalAssemblyContigAlignmentsSpark exte
                 .equals(contigWithOnlyOneConfigAnd2Aln.alignmentIntervals.get(1).referenceSpan.getContig());
     }
 
-    private static boolean isLikelyInvBreakpointOrInsInv(final AlignedContig contigWithOnlyOneConfigAnd2AlnToSameChr) {
+    static boolean isLikelyInvBreakpointOrInsInv(final AlignedContig contigWithOnlyOneConfigAnd2AlnToSameChr) {
         Utils.validateArg(isSameChromosomeMapping(contigWithOnlyOneConfigAnd2AlnToSameChr),
                 "assumption that input contig's 2 alignments map to the same chr is violated. \n" +
                         onErrorStringRepForAlignedContig(contigWithOnlyOneConfigAnd2AlnToSameChr));
@@ -223,7 +223,7 @@ public final class InternalSvDiscoverFromLocalAssemblyContigAlignmentsSpark exte
                 outputDir+"/"+rawTypeString+".sam", false);
     }
 
-    private static String onErrorStringRepForAlignedContig(final AlignedContig contig) {
+    static String onErrorStringRepForAlignedContig(final AlignedContig contig) {
         return InternalFilterLongReadAlignmentsSAMSpark.formatContigInfo(
                 new Tuple2<>(contig.contigName ,
                         contig.alignmentIntervals.stream().map(AlignmentInterval::toPackedString).collect(Collectors.toList())));

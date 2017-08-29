@@ -88,8 +88,10 @@ public class AnnotatedVariantProducer implements Serializable {
                 .chr(refLoc.getContig()).start(refLoc.getStart()).stop(applicableEnd)
                 .alleles(produceAlleles(refLoc, broadcastReference.getValue(), inferredType))
                 .id(inferredType.getInternalVariantId())
-                .attribute(GATKSVVCFConstants.SVTYPE, inferredType.toString())
-                .attribute(GATKSVVCFConstants.SVLEN, inferredType.getSVLength());
+                .attribute(GATKSVVCFConstants.SVTYPE, inferredType.toString());
+
+        if (inferredType instanceof SimpleSVType)
+            vcBuilder.attribute(GATKSVVCFConstants.SVLEN, inferredType.getSVLength());
 
         // attributes from complications
         inferredType.getTypeSpecificAttributes().forEach(vcBuilder::attribute);
