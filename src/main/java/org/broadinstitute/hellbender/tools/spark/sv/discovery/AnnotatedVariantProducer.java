@@ -90,7 +90,7 @@ public class AnnotatedVariantProducer implements Serializable {
                 .id(inferredType.getInternalVariantId())
                 .attribute(GATKSVVCFConstants.SVTYPE, inferredType.toString());
 
-        if (inferredType instanceof SimpleSVType)
+        if (inferredType.getSVLength() != SvType.INAPPLICABLE_LENGTH)
             vcBuilder.attribute(GATKSVVCFConstants.SVLEN, inferredType.getSVLength());
 
         // attributes from complications

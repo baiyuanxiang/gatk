@@ -14,8 +14,6 @@ import java.util.Map;
 
 public abstract class BreakEndVariantType extends SvType {
 
-    public static int BREAKEND_VARIANT_TYPE_LENGTH = -1;
-
     protected final boolean isTheUpstreamMate;
 
     public final boolean isTheUpstreamMate() {
@@ -31,7 +29,7 @@ public abstract class BreakEndVariantType extends SvType {
     BreakEndVariantType(final String id, final Map<String, String> typeSpecificExtraAttributes,
                         final byte[] bases, final boolean bracketPointsLeft, final SimpleInterval novelAdjRefLoc,
                         final boolean basesFirst, final boolean isTheUpstreamMate) {
-        super(id, constructAltAllele(bases, bracketPointsLeft, novelAdjRefLoc, basesFirst), BREAKEND_VARIANT_TYPE_LENGTH, typeSpecificExtraAttributes);
+        super(id, constructAltAllele(bases, bracketPointsLeft, novelAdjRefLoc, basesFirst), INAPPLICABLE_LENGTH, typeSpecificExtraAttributes);
         this.isTheUpstreamMate = isTheUpstreamMate;
     }
 

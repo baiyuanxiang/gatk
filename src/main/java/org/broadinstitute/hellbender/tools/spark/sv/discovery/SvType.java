@@ -12,6 +12,8 @@ import java.util.Map;
  */
 public abstract class SvType {
 
+    public static int INAPPLICABLE_LENGTH = -1; // length value to signify that the concept of length doesn't apply to this variant, i.e. for BND records
+    
     protected final String variantId;
     protected final Allele altAllele;
     protected final int svLen;
