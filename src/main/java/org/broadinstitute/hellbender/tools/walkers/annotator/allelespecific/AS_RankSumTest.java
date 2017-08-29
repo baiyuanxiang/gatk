@@ -60,7 +60,7 @@ public abstract class AS_RankSumTest extends RankSumTest implements ReducibleAnn
 
         final AlleleSpecificAnnotationData<CompressedDataList<Integer>> myRawData = initializeNewRawAnnotationData(vc.getAlleles());
         calculateRawData(vc, likelihoods, myRawData);
-        Map<Allele, List<Double>> myRankSumStats = calculateRankSum(myRawData.getAttributeMap(), myRawData.getRefAllele());
+        Map<Allele, Double> myRankSumStats = calculateRankSum(myRawData.getAttributeMap(), myRawData.getRefAllele());
         final String annotationString = makeRawAnnotationString(vc.getAlleles(),myRankSumStats);
         if (annotationString == null){
             return Collections.emptyMap();
@@ -89,18 +89,18 @@ public abstract class AS_RankSumTest extends RankSumTest implements ReducibleAnn
         return ret;
     }
 
-    protected String makeRawAnnotationString(final List<Allele> vcAlleles, final Map<Allele, List<Double>> perAlleleValues) {
+    protected String makeRawAnnotationString(final List<Allele> vcAlleles, final Map<Allele, Double> perAlleleValues) {
         String annotationString = "";
         for (int i = 0; i< vcAlleles.size(); i++) {
             if (vcAlleles.get(i).isReference())
                 continue;
-            if (i != 0)
+            if (i != 0) //strings will always start with a printDelim because we won't have values for the reference allele, but keep this for consistency with other annotations
                 annotationString += PRINT_DELIM;
-            final List<Double> alleleValue = perAlleleValues.get(vcAlleles.get(i));
+            final Double alleleValue = perAlleleValues.get(vcAlleles.get(i));
             //can be null if there are no ref reads
             if (alleleValue == null)
                 continue;
-            annotationString += formatListAsString(alleleValue);
+            annotationString += outputSingletonValueAsHistogram(alleleValue);
         }
         return annotationString;
     }
@@ -143,7 +143,7 @@ public abstract class AS_RankSumTest extends RankSumTest implements ReducibleAnn
 
         final Map<String,Object> annotations = new HashMap<>();
         final AlleleSpecificAnnotationData<Histogram> myData = new AlleleSpecificAnnotationData<>(originalVC.getAlleles(), rawRankSumData);
-        parseCombinedDataString(myData);
+        parseRawDataString(myData);
 
         final Map<Allele, Double> perAltRankSumResults = calculateReducedData(myData.getAttributeMap(), myData.getRefAllele());
         //shortcut for no ref values
@@ -152,44 +152,6 @@ public abstract class AS_RankSumTest extends RankSumTest implements ReducibleAnn
         final String annotationString = makeReducedAnnotationString(vc, perAltRankSumResults);
         annotations.put(getKeyNames().get(0), annotationString);
         return annotations;
-    }
-
-    protected void parseCombinedDataString(final ReducibleAnnotationData<Histogram> myData) {
-        final String rawDataString = myData.getRawData();
-        String rawDataNoBrackets;
-        final Map<Allele, Histogram> perAlleleValues = new HashMap<>();
-        //Initialize maps
-        for (final Allele current : myData.getAlleles()) {
-            perAlleleValues.put(current, new Histogram());
-        }
-        //Map gives back list with []
-        if (rawDataString.charAt(0) == '[') {
-            rawDataNoBrackets = rawDataString.substring(1, rawDataString.length() - 1);
-        }
-        else {
-            rawDataNoBrackets = rawDataString;
-        }
-        //rawDataPerAllele is a string representation of the Histogram for each allele in the form value, count, value, count...
-        final String[] rawDataPerAllele = rawDataNoBrackets.split(SPLIT_DELIM);
-        for (int i=0; i<rawDataPerAllele.length; i++) {
-            final String alleleData = rawDataPerAllele[i];
-            final Histogram alleleList = perAlleleValues.get(myData.getAlleles().get(i));
-            final String[] rawListEntriesAsStringVector = alleleData.split(RAW_DELIM);
-            for (int j=0; j<rawListEntriesAsStringVector.length; j+=2) {
-                Double value;
-                int count;
-                if (!rawListEntriesAsStringVector[j].isEmpty()) {
-                    value = Double.parseDouble(rawListEntriesAsStringVector[j].trim());
-                    if (!rawListEntriesAsStringVector[j + 1].isEmpty()) {
-                        count = Integer.parseInt(rawListEntriesAsStringVector[j + 1].trim());
-                        if(!value.isNaN())
-                            alleleList.add(value,count);
-                    }
-                }
-            }
-        }
-        myData.setAttributeMap(perAlleleValues);
-        myData.validateAllelesList();
     }
 
     // Calculates the median of values per-Allele in the RMS tests
@@ -242,17 +204,20 @@ public abstract class AS_RankSumTest extends RankSumTest implements ReducibleAnn
         else {
             rawDataNoBrackets = rawDataString;
         }
+        //TODO handle misformatted annotation field more gracefully
         //rawDataPerAllele is a per-sample list of the rank sum statistic for each allele
         final String[] rawDataPerAllele = rawDataNoBrackets.split(SPLIT_DELIM);
         for (int i=0; i<rawDataPerAllele.length; i++) {
             final String alleleData = rawDataPerAllele[i];
             final Histogram alleleList = perAlleleValues.get(myData.getAlleles().get(i));
-            final String[] rawListEntriesAsStringVector = alleleData.split(",");
-            for (String aRawListEntriesAsStringVector : rawListEntriesAsStringVector) {
-                if (!aRawListEntriesAsStringVector.isEmpty()) {
-                    Double value = Double.parseDouble(aRawListEntriesAsStringVector.trim());
-                    if (!value.isNaN())
-                        alleleList.add(value);
+            final String[] rawListEntriesAsStringVector = alleleData.split(RAW_DELIM);
+            for (int j=0; j<rawListEntriesAsStringVector.length; j+=2) {
+                if (!rawListEntriesAsStringVector[j].isEmpty()) {
+                    Double value = Double.parseDouble(rawListEntriesAsStringVector[j].trim());
+                    if (!value.isNaN() && (!rawListEntriesAsStringVector[j + 1].isEmpty())) {
+                        int count = Integer.parseInt(rawListEntriesAsStringVector[j + 1].trim());
+                        alleleList.add(value, count);
+                    }
                 }
             }
         }
@@ -291,19 +256,19 @@ public abstract class AS_RankSumTest extends RankSumTest implements ReducibleAnn
         for (int i = 0; i< vcAlleles.size(); i++) {
             if (vcAlleles.get(i).isReference())
                 continue;
-            if (i != 0)
+            if (i != 0)    //strings will always start with a printDelim because we won't have values for the reference allele, but keep this for consistency with other annotations
                 annotationString += PRINT_DELIM;
             final Histogram alleleValue = perAlleleValues.get(vcAlleles.get(i));
             //can be null if there are no ref reads
-            if (alleleValue == null)
+            if (alleleValue.isEmpty())
                 continue;
             annotationString += alleleValue.toString();
         }
         return annotationString;
     }
 
-    public Map<Allele, List<Double>> calculateRankSum(final Map<Allele, CompressedDataList<Integer>> perAlleleValues, final Allele ref) {
-        final Map<Allele, List<Double>> perAltRankSumResults = new HashMap<>();
+    public Map<Allele,Double> calculateRankSum(final Map<Allele, CompressedDataList<Integer>> perAlleleValues, final Allele ref) {
+        final Map<Allele, Double> perAltRankSumResults = new HashMap<>();
         //shortcut to not try to calculate rank sum if there are no reads that unambiguously support the ref
         if (perAlleleValues.get(ref).isEmpty())
             return perAltRankSumResults;
@@ -326,7 +291,7 @@ public abstract class AS_RankSumTest extends RankSumTest implements ReducibleAnn
             final MannWhitneyU.Result result = mannWhitneyU.test(ArrayUtils.toPrimitive(alts.toArray(new Double[alts.size()])),
                                                                  ArrayUtils.toPrimitive(refs.toArray(new Double[alts.size()])),
                                                                  MannWhitneyU.TestType.FIRST_DOMINATES);
-            perAltRankSumResults.put(alt, Collections.singletonList(result.getZ()));
+            perAltRankSumResults.put(alt, result.getZ());
         }
         return perAltRankSumResults;
     }
@@ -336,10 +301,19 @@ public abstract class AS_RankSumTest extends RankSumTest implements ReducibleAnn
         for (int i=0; i<rankSumValues.size(); i++) {
             if(i!=0)
                 formattedString += REDUCED_DELIM;
-            //we can get NaNs if one of the ref or alt lists is empty (e.g. homVar genotypes), but VQSR will process them appropriately downstream
-            formattedString += String.format("%.3f", rankSumValues.get(i));
+            //we can get NaNs if one of the ref or alt lists is empty (e.g. homVar genotypes)
+            if (!rankSumValues.get(i).isNaN()) {
+                formattedString += String.format("%.3f", rankSumValues.get(i));
+            }
         }
         return formattedString;
     }
+
+    public String outputSingletonValueAsHistogram(final Double rankSumValue) {
+        Histogram h = new Histogram();
+        h.add(rankSumValue);
+        return h.toString();
+    }
+
 
 }

@@ -28,6 +28,9 @@ public class Histogram {
     }
 
     public void add(final Double d) {
+        if (d.isNaN()){
+            return;
+        }
         long binKey = getBinnedValue(d);
         if (isValidBinKey(binKey))
             dataList.add((int)binKey);
@@ -109,6 +112,8 @@ public class Histogram {
         printDelim = ",";
         String str = "";
         Object[] keys = dataList.valueCounts.keySet().toArray();
+        if (keys.length == 0)
+            return Double.toString(Double.NaN);
         Arrays.sort(keys);
         for (Object i: keys){
             if(!str.isEmpty())
@@ -117,4 +122,9 @@ public class Histogram {
         }
         return str;
     }
+
+    public boolean isEmpty() {
+        return dataList.isEmpty();
+    }
 }
+

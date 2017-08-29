@@ -3,6 +3,7 @@ package org.broadinstitute.hellbender.tools.walkers.annotator.allelespecific;
 import htsjdk.samtools.util.Locatable;
 import htsjdk.variant.variantcontext.*;
 import htsjdk.variant.vcf.VCFConstants;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet;
 import org.broadinstitute.hellbender.engine.FeatureDataSource;
 import org.broadinstitute.hellbender.engine.FeatureInput;
 import org.broadinstitute.hellbender.tools.walkers.ReferenceConfidenceVariantContextMerger;
@@ -19,7 +20,7 @@ import java.util.stream.Collectors;
 
 /**
  * A class for storing end-end integration tests over artificial data intended to test allele specific annotation implementations,
- * As of 8/4/17, test output was matched against GATK3 implementations of combineGVCFs().
+ * As of 8/29/17, test output was matched against GATK3 implementations of combineGVCFs().
  */
 public abstract class ReducibleAnnotationBaseTest extends BaseTest {
     private FeatureDataSource<VariantContext> VCFA = new FeatureDataSource<>(getTestFile("NA12878.AS.chr20snippet.g.vcf"));
@@ -36,7 +37,8 @@ public abstract class ReducibleAnnotationBaseTest extends BaseTest {
         List<Object[]> tests = new ArrayList<>();
 
         // these are hand picked sites from the allele specific unit tests for combinegvcfs that triggered a combine in GATK3
-        Integer[] interestingLocs = {10433312, 10433322, 10433324, 10433326, 10433328, 10433382, 10433391, 10433468, 10433560, 10433575, 10433594, 10433955, 10435067, 10436227};
+        Integer[] interestingLocs = {10087820,10433312, 10433322, 10433324, 10433326, 10433328, 10433382, 10433391, 10433468, 10433560, 10433575, 10433594, 10433955,
+                10434177, 10434384, 10435067, 10434258, 10436227, 10684106};
         List<SimpleInterval> intervals = Arrays.stream(interestingLocs).map(m -> new SimpleInterval("20", m, m)).collect(Collectors.toList());
         for(SimpleInterval loc: intervals) {
             VariantContext a = VCFA.query(loc).next();
@@ -47,24 +49,15 @@ public abstract class ReducibleAnnotationBaseTest extends BaseTest {
         return tests.toArray(new Object[][]{});
     }
 
-//    protected VariantContext generateRawDataForVariantContext(List<String> annotationsToUse, ReadLikelihoods<Allele> likelihoods, ReferenceContext ref, VariantContext vc, List<Allele> alleles) {
-//        final List<String> annotationGroupsToUse = Collections.emptyList();
-//        final List<String> annotationsToExclude = Collections.emptyList();
-//        final FeatureInput<VariantContext> dbSNPBinding = null;
-//        final List<FeatureInput<VariantContext>> features = Collections.emptyList();
-//        final VariantAnnotatorEngine vae = VariantAnnotatorEngine.ofSelectedMinusExcluded(annotationGroupsToUse, annotationsToUse, annotationsToExclude, dbSNPBinding, features);
-//
-//        VariantContext intermediate = vae.annotateContextForActiveRegion(ref,likelihoods,vc,true);
-//        return intermediate;
-//    }
-
-    // Method that determines whether two variant contexts have equivalent alele specific annotations regardless of allele ordering
+    // Method that determines whether two variant contexts have equivalent allele specific annotations regardless of allele ordering
     public static Boolean alleleSpecificAnnotationEquals(VariantContext a, VariantContext b, String annotation) {
         List<Allele> Aalleles = a.getAlleles();
         String[] Aannot = String.join(",",a.getAttributeAsStringList(annotation, "")).split("\\|",-1);
         String[] Bannot = String.join(",",b.getAttributeAsStringList(annotation, "")).split("\\|",-1);
         if (Arrays.equals(Aannot, Bannot)) {
             return true;
+        } if (Aannot.length!=Bannot.length) {
+            return false;
         }
         for (int i = 0; i < Aalleles.size(); i++) {
             Allele al = Aalleles.get(i);
