@@ -86,6 +86,17 @@ public final class BucketUtilsTest extends BaseTest {
         BucketUtils.copyFile(intermediate, dest.getPath());
         IOUtil.assertFilesEqual(new File(src), dest);
         Assert.assertTrue(BucketUtils.fileExists(intermediate));
+
+        // File and directory sizes
+        long srcFileSize = BucketUtils.fileSize(src);
+        Assert.assertTrue(srcFileSize > 0);
+        long intermediateFileSize = BucketUtils.fileSize(intermediate);
+        Assert.assertEquals(intermediateFileSize, srcFileSize);
+        long intermediateDirSize = BucketUtils.dirSize(intermediate);
+        Assert.assertEquals(intermediateDirSize, srcFileSize);
+        long intermediateParentDirSize = BucketUtils.dirSize(BucketUtils.getPathOnGcs(intermediate).getParent().toString());
+        Assert.assertEquals(intermediateParentDirSize, srcFileSize);
+
         BucketUtils.deleteFile(intermediate);
         Assert.assertFalse(BucketUtils.fileExists(intermediate));
     }
